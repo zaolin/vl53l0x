@@ -72,6 +72,7 @@ protected:
   bool waiting_for_interrupt_{false};
   uint8_t stop_variable_{0};
   bool nerviger_bug_{false};
+  uint32_t read_start_time_{0};  // Track when reading started for timeout recovery
 
   uint16_t timeout_start_us_;
   uint16_t timeout_us_{};
