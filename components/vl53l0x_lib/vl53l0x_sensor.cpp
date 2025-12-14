@@ -258,6 +258,9 @@ void VL53L0XSensorMod::setup() {
   reg(0x8A) = final_address & 0x7F;
   this->set_i2c_address(final_address);
 
+  // Apply sensing mode configuration
+  this->configure_sense_mode_();
+
   ESP_LOGD(TAG, "'%s' - setup END", this->name_.c_str());
 }
 
@@ -313,13 +316,53 @@ void VL53L0XSensorMod::loop() {
     if (intmask & 0x07) {
       uint16_t range_mm = 0;
       this->read_byte_16(0x14 + 10, &range_mm);
+
+      // Read range status from result register (bits 3-5 of byte at 0x14)
+      uint8_t range_status = (reg(0x14).get() >> 3) & 0x0F;
+
       reg(0x0B) = 0x01; // Clear interrupt
       this->waiting_for_interrupt_ = false;
 
-      if (range_mm >= 8190) {
+      // Range status codes:
+      // 0 = Valid measurement
+      // 1 = Sigma fail (sigma too high)
+      // 2 = Signal fail (signal too low)
+      // 3 = Min range fail (too close)
+      // 4 = Phase out of bounds (typically >= 8190mm)
+      // 5 = Hardware fail
+
+      if (range_mm >= 8190 || range_status == 4) {
         ESP_LOGD(TAG, "'%s' - Out of range", this->name_.c_str());
         this->publish_state(NAN);
         return;
+      }
+
+      if (range_status != 0) {
+        const char *status_msg = "unknown";
+        bool should_publish = true;
+        switch (range_status) {
+        case 1:
+          status_msg = "Sigma fail";
+          should_publish = !this->enable_sigma_check_;
+          break;
+        case 2:
+          status_msg = "Signal fail";
+          should_publish = !this->enable_signal_check_;
+          break;
+        case 3:
+          status_msg = "Min range fail";
+          break;
+        case 5:
+          status_msg = "Hardware fail";
+          should_publish = false;
+          break;
+        }
+        ESP_LOGD(TAG, "'%s' - Range status: %s (%d)", this->name_.c_str(),
+                 status_msg, range_status);
+        if (!should_publish) {
+          this->publish_state(NAN);
+          return;
+        }
       }
 
       float range_m = range_mm / 1e3f;
@@ -530,6 +573,94 @@ bool VL53L0XSensorMod::perform_single_ref_calibration_(uint8_t vhv_init_byte) {
 
   reg(0x0B) = 0x01;
   reg(0x00) = 0x00;
+
+  return true;
+}
+
+void VL53L0XSensorMod::configure_sense_mode_() {
+  // Apply sensing mode-specific configuration
+  // Based on Adafruit VL53L0X library configSensor() function
+
+  switch (this->sense_mode_) {
+  case VL53L0X_SENSE_DEFAULT:
+    // Default configuration - already applied during setup
+    // Signal rate limit = 0.25, standard timing
+    ESP_LOGD(TAG, "Sense mode: DEFAULT");
+    break;
+
+  case VL53L0X_SENSE_LONG_RANGE:
+    ESP_LOGD(TAG, "Sense mode: LONG_RANGE");
+    // Lower signal rate limit for better long range detection
+    this->signal_rate_limit_ = 0.1f;
+    {
+      auto rate_value = static_cast<uint16_t>(this->signal_rate_limit_ * 128);
+      write_byte_16(0x44, rate_value);
+    }
+    // Set timing budget to 33ms
+    set_measurement_timing_budget_(33000);
+    // Configure VCSEL pulse periods for long range
+    set_vcsel_pulse_period_(VCSEL_PERIOD_PRE_RANGE, 18);
+    set_vcsel_pulse_period_(VCSEL_PERIOD_FINAL_RANGE, 14);
+    break;
+
+  case VL53L0X_SENSE_HIGH_SPEED:
+    ESP_LOGD(TAG, "Sense mode: HIGH_SPEED");
+    // Faster measurements with reduced accuracy
+    // Set timing budget to 20ms (minimum)
+    set_measurement_timing_budget_(20000);
+    break;
+
+  case VL53L0X_SENSE_HIGH_ACCURACY:
+    ESP_LOGD(TAG, "Sense mode: HIGH_ACCURACY");
+    // Slower but more accurate measurements
+    // Set timing budget to 200ms
+    set_measurement_timing_budget_(200000);
+    break;
+  }
+}
+
+bool VL53L0XSensorMod::set_vcsel_pulse_period_(VcselPeriodType type,
+                                               uint8_t period) {
+  // Set VCSEL (laser) pulse period
+  // period must be an even number; valid values are 8, 10, 12, 14, 16, 18
+
+  uint8_t vcsel_period_reg = (period >> 1) - 1;
+
+  SequenceStepEnables enables{};
+  SequenceStepTimeouts timeouts{};
+  get_sequence_step_enables_(&enables);
+  get_sequence_step_timeouts_(&enables, &timeouts);
+
+  if (type == VCSEL_PERIOD_PRE_RANGE) {
+    // Set pre-range VCSEL period
+    reg(0x50) = vcsel_period_reg;
+
+    // Re-calculate and set pre-range timeout
+    uint16_t new_pre_range_timeout_mclks =
+        timeout_microseconds_to_mclks_(timeouts.pre_range_us, period);
+    write_byte_16(0x51, encode_timeout_(new_pre_range_timeout_mclks));
+
+    // Re-calculate and set MSRC timeout
+    uint16_t new_msrc_timeout_mclks =
+        timeout_microseconds_to_mclks_(timeouts.msrc_dss_tcc_us, period);
+    reg(0x46) =
+        (new_msrc_timeout_mclks > 256) ? 255 : (new_msrc_timeout_mclks - 1);
+
+  } else if (type == VCSEL_PERIOD_FINAL_RANGE) {
+    // Set final-range VCSEL period
+    reg(0x70) = vcsel_period_reg;
+
+    // Re-calculate and set final range timeout
+    uint16_t new_final_range_timeout_mclks =
+        timeout_microseconds_to_mclks_(timeouts.final_range_us, period);
+    if (enables.pre_range) {
+      new_final_range_timeout_mclks += timeouts.pre_range_mclks;
+    }
+    write_byte_16(0x71, encode_timeout_(new_final_range_timeout_mclks));
+  }
+
+  // Re-apply measurement timing budget
+  set_measurement_timing_budget_(this->measurement_timing_budget_us_);
 
   return true;
 }

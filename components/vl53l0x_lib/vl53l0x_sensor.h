@@ -23,6 +23,13 @@ struct SequenceStepTimeouts {
 
 enum VcselPeriodType { VCSEL_PERIOD_PRE_RANGE, VCSEL_PERIOD_FINAL_RANGE };
 
+enum VL53L0XSenseMode {
+  VL53L0X_SENSE_DEFAULT = 0,
+  VL53L0X_SENSE_LONG_RANGE,
+  VL53L0X_SENSE_HIGH_SPEED,
+  VL53L0X_SENSE_HIGH_ACCURACY
+};
+
 class VL53L0XSensorMod : public sensor::Sensor,
                          public PollingComponent,
                          public i2c::I2CDevice {
@@ -43,9 +50,21 @@ public:
   void set_long_range(bool long_range) { long_range_ = long_range; }
   void set_timeout_us(uint32_t timeout_us) { this->timeout_us_ = timeout_us; }
   void set_enable_pin(GPIOPin *enable) { this->enable_pin_ = enable; }
+  void set_sense_mode(VL53L0XSenseMode mode) { this->sense_mode_ = mode; }
+  void set_enable_sigma_check(bool enable) {
+    this->enable_sigma_check_ = enable;
+  }
+  void set_enable_signal_check(bool enable) {
+    this->enable_signal_check_ = enable;
+  }
+  void set_timing_budget(uint32_t budget_us) {
+    this->measurement_timing_budget_us_ = budget_us;
+  }
 
 protected:
   void calibrate_();
+  void configure_sense_mode_();
+  bool set_vcsel_pulse_period_(VcselPeriodType type, uint8_t period);
   uint32_t get_measurement_timing_budget_();
   bool set_measurement_timing_budget_(uint32_t budget_us);
   void get_sequence_step_enables_(SequenceStepEnables *enables);
@@ -71,8 +90,11 @@ protected:
   bool initiated_read_{false};
   bool waiting_for_interrupt_{false};
   uint8_t stop_variable_{0};
-  bool nerviger_bug_{false};
-  uint32_t read_start_time_{0};  // Track when reading started for timeout recovery
+  uint32_t read_start_time_{
+      0}; // Track when reading started for timeout recovery
+  VL53L0XSenseMode sense_mode_{VL53L0X_SENSE_DEFAULT};
+  bool enable_sigma_check_{true};
+  bool enable_signal_check_{true};
 
   uint16_t timeout_start_us_;
   uint16_t timeout_us_{};

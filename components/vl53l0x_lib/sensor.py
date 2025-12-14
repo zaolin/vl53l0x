@@ -18,8 +18,20 @@ VL53L0XSensorMod = vl53l0x_lib_ns.class_(
     "VL53L0XSensorMod", sensor.Sensor, cg.PollingComponent, i2c.I2CDevice
 )
 
+VL53L0XSenseMode = vl53l0x_lib_ns.enum("VL53L0XSenseMode")
+SENSE_MODES = {
+    "default": VL53L0XSenseMode.VL53L0X_SENSE_DEFAULT,
+    "long_range": VL53L0XSenseMode.VL53L0X_SENSE_LONG_RANGE,
+    "high_speed": VL53L0XSenseMode.VL53L0X_SENSE_HIGH_SPEED,
+    "high_accuracy": VL53L0XSenseMode.VL53L0X_SENSE_HIGH_ACCURACY,
+}
+
 CONF_SIGNAL_RATE_LIMIT = "signal_rate_limit"
 CONF_LONG_RANGE = "long_range"
+CONF_SENSE_MODE = "sense_mode"
+CONF_ENABLE_SIGMA_CHECK = "enable_sigma_check"
+CONF_ENABLE_SIGNAL_CHECK = "enable_signal_check"
+CONF_TIMING_BUDGET = "timing_budget"
 
 
 def check_keys(obj):
@@ -52,6 +64,15 @@ CONFIG_SCHEMA = cv.All(
                 min=0.0, max=512.0, min_included=False, max_included=False
             ),
             cv.Optional(CONF_LONG_RANGE, default=False): cv.boolean,
+            cv.Optional(CONF_SENSE_MODE, default="default"): cv.enum(
+                SENSE_MODES, lower=True
+            ),
+            cv.Optional(CONF_ENABLE_SIGMA_CHECK, default=True): cv.boolean,
+            cv.Optional(CONF_ENABLE_SIGNAL_CHECK, default=True): cv.boolean,
+            cv.Optional(CONF_TIMING_BUDGET): cv.All(
+                cv.positive_time_period_microseconds,
+                cv.Range(min=cv.TimePeriod(microseconds=20000)),
+            ),
             cv.Optional(CONF_TIMEOUT, default="10ms"): check_timeout,
             cv.Optional(CONF_ENABLE_PIN): pins.gpio_output_pin_schema,
         }
@@ -67,6 +88,11 @@ async def to_code(config):
     await cg.register_component(var, config)
     cg.add(var.set_signal_rate_limit(config[CONF_SIGNAL_RATE_LIMIT]))
     cg.add(var.set_long_range(config[CONF_LONG_RANGE]))
+    cg.add(var.set_sense_mode(config[CONF_SENSE_MODE]))
+    cg.add(var.set_enable_sigma_check(config[CONF_ENABLE_SIGMA_CHECK]))
+    cg.add(var.set_enable_signal_check(config[CONF_ENABLE_SIGNAL_CHECK]))
+    if CONF_TIMING_BUDGET in config:
+        cg.add(var.set_timing_budget(config[CONF_TIMING_BUDGET]))
     cg.add(var.set_timeout_us(config[CONF_TIMEOUT]))
 
     if CONF_ENABLE_PIN in config:
@@ -74,3 +100,4 @@ async def to_code(config):
         cg.add(var.set_enable_pin(enable))
 
     await i2c.register_i2c_device(var, config)
+
