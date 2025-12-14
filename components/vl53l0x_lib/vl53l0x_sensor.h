@@ -60,9 +60,19 @@ public:
   void set_timing_budget(uint32_t budget_us) {
     this->measurement_timing_budget_us_ = budget_us;
   }
+  void set_offset_calibration(int32_t offset_um) {
+    this->offset_calibration_um_ = offset_um;
+  }
+  void set_crosstalk_compensation(float rate_mcps) {
+    this->crosstalk_compensation_mcps_ = rate_mcps;
+  }
+  void set_enable_temperature_recal(bool enable) {
+    this->enable_temperature_recal_ = enable;
+  }
 
 protected:
-  void calibrate_();
+  void apply_offset_calibration_();
+  void apply_crosstalk_compensation_();
   void configure_sense_mode_();
   bool set_vcsel_pulse_period_(VcselPeriodType type, uint8_t period);
   uint32_t get_measurement_timing_budget_();
@@ -95,6 +105,9 @@ protected:
   VL53L0XSenseMode sense_mode_{VL53L0X_SENSE_DEFAULT};
   bool enable_sigma_check_{true};
   bool enable_signal_check_{true};
+  int32_t offset_calibration_um_{0};
+  float crosstalk_compensation_mcps_{0.0f};
+  bool enable_temperature_recal_{false};
 
   uint16_t timeout_start_us_;
   uint16_t timeout_us_{};

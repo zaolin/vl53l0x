@@ -261,6 +261,10 @@ void VL53L0XSensorMod::setup() {
   // Apply sensing mode configuration
   this->configure_sense_mode_();
 
+  // Apply calibration settings
+  this->apply_offset_calibration_();
+  this->apply_crosstalk_compensation_();
+
   ESP_LOGD(TAG, "'%s' - setup END", this->name_.c_str());
 }
 
@@ -663,6 +667,52 @@ bool VL53L0XSensorMod::set_vcsel_pulse_period_(VcselPeriodType type,
   set_measurement_timing_budget_(this->measurement_timing_budget_us_);
 
   return true;
+}
+
+void VL53L0XSensorMod::apply_offset_calibration_() {
+  if (this->offset_calibration_um_ == 0) {
+    return; // No calibration offset configured
+  }
+
+  // Offset register is in 10.2 format (units of mm/4)
+  // Convert from micrometers to register value: um / 250
+  int32_t cMaxOffset = 511000;  // +511mm in um
+  int32_t cMinOffset = -512000; // -512mm in um
+  int32_t offsetValue = this->offset_calibration_um_;
+
+  // Clamp to valid range
+  if (offsetValue > cMaxOffset)
+    offsetValue = cMaxOffset;
+  if (offsetValue < cMinOffset)
+    offsetValue = cMinOffset;
+
+  uint16_t encodedOffset;
+  if (offsetValue >= 0) {
+    encodedOffset = offsetValue / 250;
+  } else {
+    encodedOffset = 4096 + (offsetValue / 250); // 12-bit 2's complement
+  }
+
+  write_byte_16(0x24,
+                encodedOffset); // VL53L0X_REG_ALGO_PART_TO_PART_RANGE_OFFSET_MM
+  ESP_LOGD(TAG, "Applied offset calibration: %d um (reg: 0x%04X)",
+           this->offset_calibration_um_, encodedOffset);
+}
+
+void VL53L0XSensorMod::apply_crosstalk_compensation_() {
+  if (this->crosstalk_compensation_mcps_ <= 0.0f) {
+    return; // No crosstalk compensation configured
+  }
+
+  // Crosstalk register is in 3.13 fixed-point format
+  // Convert from MCPS (float) to fixed-point: value * 8192
+  uint16_t xtalkValue =
+      static_cast<uint16_t>(this->crosstalk_compensation_mcps_ * 8192.0f);
+
+  write_byte_16(
+      0x20, xtalkValue); // VL53L0X_REG_CROSSTALK_COMPENSATION_PEAK_RATE_MCPS
+  ESP_LOGD(TAG, "Applied crosstalk compensation: %.3f MCPS (reg: 0x%04X)",
+           this->crosstalk_compensation_mcps_, xtalkValue);
 }
 
 } // namespace vl53l0x_lib

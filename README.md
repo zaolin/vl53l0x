@@ -1,137 +1,37 @@
-# VL53L0X ESP-IDF Migration
+# VL53L0X Enhanced ESPHome Component
 
-This document describes the migration of the `vl53l0x_lib` custom ESPHome component from Arduino to ESP-IDF framework.
+An enhanced VL53L0X Time-of-Flight distance sensor component for ESPHome with ESP-IDF framework support.
 
-## Overview
+## Features
 
-The VL53L0X Time-of-Flight distance sensor component was originally built for Arduino framework. This migration enables it to work with ESP-IDF for better performance and reliability on ESP32 devices.
+- ✅ **ESP-IDF Native** - No Arduino dependencies
+- ✅ **Sensing Modes** - Default, Long Range, High Speed, High Accuracy presets
+- ✅ **Range Status Validation** - Sigma, signal, min range, and hardware fail detection
+- ✅ **Offset Calibration** - Factory offset correction (-512mm to +511mm)
+- ✅ **Crosstalk Compensation** - Cover glass crosstalk correction
+- ✅ **Configurable Timing Budget** - Trade speed for accuracy (20ms to 200ms+)
 
-## Changes Made
+## Installation
 
-### 1. ESPHome Configuration
-
-**File:** `bad_vlib.yaml`
-
-```yaml
-# Changed from:
-esp32:
-  framework:
-    type: arduino
-
-# To:
-esp32:
-  framework:
-    type: esp-idf
-```
-
----
-
-### 2. I2C Platform Layer
-
-#### `vl53l0x_i2c_platform.h`
-- Removed Arduino includes (`Arduino.h`, `Wire.h`)
-- Changed `TwoWire *` → `esphome::i2c::I2CBus *`
-
-```cpp
-// Before
-#include "Arduino.h"
-#include "Wire.h"
-VL53L0X_Error VL53L0X_WriteMulti(TwoWire *i2c, ...);
-
-// After
-namespace esphome { namespace i2c { class I2CBus; } }
-VL53L0X_Error VL53L0X_WriteMulti(esphome::i2c::I2CBus *i2c, ...);
-```
-
-#### `vl53l0x_i2c_comms.cpp`
-- Replaced Arduino `TwoWire` methods with ESPHome I2C methods
-
-```cpp
-// Before (Arduino)
-i2c->beginTransmission(dev_addr);
-i2c->write(index);
-i2c->write(data, count);
-i2c->endTransmission(true);
-
-// After (ESPHome)
-uint8_t buffer[count + 1];
-buffer[0] = index;
-memcpy(&buffer[1], pdata, count);
-i2c->write(dev_addr, buffer, count + 1, true);
-```
-
-#### `vl53l0x_platform.h`
-- Changed I2C pointer type in device structure
-
-```cpp
-// Before
-TwoWire *i2c;
-
-// After
-esphome::i2c::I2CBus *i2c;
-```
-
----
-
-### 3. Sensor Implementation
-
-#### `vl53l0x_sensor.h`
-- Updated namespace: `vl53l0x` → `vl53l0x_lib`
-- Renamed class: `VL53L0XSensor` → `VL53L0XSensorMod`
-- **Fixed member initialization** (critical bug fix):
-
-```cpp
-// Before (uninitialized - caused stuck readings)
-float signal_rate_limit_;
-bool long_range_;
-
-// After (properly initialized)
-float signal_rate_limit_{0.25};
-bool long_range_{false};
-```
-
-#### `vl53l0x_sensor.cpp`
-- Replaced `delayMicroseconds()` with `delay()`
-- Implemented full native ESPHome initialization sequence
-- Added proper `update()` and `loop()` methods for measurements
-
----
-
-### 4. Deleted Files
-- `Adafruit_VL53L0X.cpp` - unused
-- `Adafruit_VL53L0X.h` - unused
-
-## Bug Fix
-
-**Issue:** Sensor readings worked initially but got stuck after 2 readings.
-
-**Root Cause:** Uninitialized member variables (`signal_rate_limit_`, `long_range_`, `measurement_timing_budget_us_`, `stop_variable_`) caused undefined behavior.
-
-**Solution:** Added default initialization values in the header file.
-
-## Verification
-
-```
-[17:46:07] 'Waschbecken Abstand' - Got distance 0.419 m
-[17:46:12] 'Waschbecken Abstand' - Got distance 0.304 m
-[17:46:27] 'Waschbecken Abstand' - Got distance 0.148 m
-[17:46:52] 'Waschbecken Abstand' - Got distance 0.029 m
-```
-
-## Usage
+Add to your ESPHome configuration:
 
 ```yaml
-esphome:
-  name: my-device
-
-esp32:
-  board: esp32dev
-  framework:
-    type: esp-idf
-
 external_components:
-  - source: my_components
+  - source: github://zaolin/vl53l0x@master
+    components: [vl53l0x_lib]
+```
 
+Or for local development:
+
+```yaml
+external_components:
+  - source: components
+    components: [vl53l0x_lib]
+```
+
+## Basic Usage
+
+```yaml
 i2c:
   sda: 21
   scl: 22
@@ -139,5 +39,103 @@ i2c:
 sensor:
   - platform: vl53l0x_lib
     name: "Distance Sensor"
-    update_interval: 5s
+    update_interval: 1s
 ```
+
+## Full Configuration
+
+```yaml
+sensor:
+  - platform: vl53l0x_lib
+    name: "Distance Sensor"
+    
+    # Sensing mode presets
+    sense_mode: default  # default | long_range | high_speed | high_accuracy
+    
+    # Quality checks (default: enabled)
+    enable_sigma_check: true
+    enable_signal_check: true
+    
+    # Timing budget (optional, overrides sense_mode timing)
+    timing_budget: 33ms  # 20ms minimum, higher = more accurate
+    
+    # Calibration (optional)
+    offset_calibration: 0        # micrometers, range: -512000 to +511000
+    crosstalk_compensation: 0.0  # MCPS, range: 0.0 to 10.0
+    
+    # Native ESPHome options
+    signal_rate_limit: 0.25
+    long_range: false
+    timeout: 10ms
+    update_interval: 1s
+    address: 0x29
+    # enable_pin: GPIO5  # Required if using non-default address
+```
+
+## Sensing Modes
+
+| Mode | Timing Budget | Signal Rate | Best For |
+|------|---------------|-------------|----------|
+| `default` | 33ms | 0.25 | General use |
+| `long_range` | 33ms | 0.1 | Extended range (up to 2m) |
+| `high_speed` | 20ms | 0.25 | Fast updates, reduced accuracy |
+| `high_accuracy` | 200ms | 0.25 | Maximum precision |
+
+## Calibration Guide
+
+### Offset Calibration
+
+If your sensor consistently reads too high or too low, apply offset calibration:
+
+```yaml
+offset_calibration: 25000  # +25mm correction in micrometers
+```
+
+Measure a known distance at ~100mm and calculate the offset.
+
+### Crosstalk Compensation
+
+If using a cover glass, crosstalk compensation improves accuracy:
+
+```yaml
+crosstalk_compensation: 0.5  # MCPS value from calibration
+```
+
+## Range Status Codes
+
+The component validates range status and logs errors:
+
+| Status | Meaning | Action |
+|--------|---------|--------|
+| 0 | Valid | Published |
+| 1 | Sigma fail | Filtered if `enable_sigma_check: true` |
+| 2 | Signal fail | Filtered if `enable_signal_check: true` |
+| 3 | Min range fail | Logged, still published |
+| 4 | Phase out of bounds | Published as NAN (out of range) |
+| 5 | Hardware fail | Published as NAN |
+
+## Multiple Sensors
+
+For multiple sensors on the same I2C bus, use `enable_pin` for address management:
+
+```yaml
+sensor:
+  - platform: vl53l0x_lib
+    name: "Sensor 1"
+    address: 0x30
+    enable_pin: GPIO5
+    
+  - platform: vl53l0x_lib
+    name: "Sensor 2"  
+    address: 0x31
+    enable_pin: GPIO4
+```
+
+## Requirements
+
+- ESP32 with ESP-IDF framework
+- I2C connected VL53L0X sensor
+
+## License
+
+Based on Pololu VL53L0X library and STMicroelectronics API.

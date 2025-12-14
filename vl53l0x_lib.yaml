@@ -28,7 +28,7 @@ wifi:
 captive_portal:
 
 external_components:
-  - source: github://zaolin/vl53l0x@master
+  - source: components
     components: [vl53l0x_lib]
 
 logger:
@@ -44,4 +44,22 @@ i2c:
 sensor:
   - platform: vl53l0x_lib
     name: "Waschbecken Abstand"
+    
+    # Sensing mode: default | long_range | high_speed | high_accuracy
+    sense_mode: default
+    
+    # Quality filtering
+    enable_sigma_check: true
+    enable_signal_check: true
+    
+    # Optional: explicit timing budget (overrides sense_mode timing)
+    # timing_budget: 33ms
+    
+    # Optional: calibration settings
+    # offset_calibration: 0       # micrometers (-512000 to +511000)
+    # crosstalk_compensation: 0.0 # MCPS (0.0 to 10.0)
+    
+    # Standard options
+    signal_rate_limit: 0.25
+    timeout: 10ms
     update_interval: 1s

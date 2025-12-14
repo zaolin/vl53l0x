@@ -32,6 +32,9 @@ CONF_SENSE_MODE = "sense_mode"
 CONF_ENABLE_SIGMA_CHECK = "enable_sigma_check"
 CONF_ENABLE_SIGNAL_CHECK = "enable_signal_check"
 CONF_TIMING_BUDGET = "timing_budget"
+CONF_OFFSET_CALIBRATION = "offset_calibration"
+CONF_CROSSTALK_COMPENSATION = "crosstalk_compensation"
+CONF_ENABLE_TEMPERATURE_RECAL = "enable_temperature_recal"
 
 
 def check_keys(obj):
@@ -73,6 +76,9 @@ CONFIG_SCHEMA = cv.All(
                 cv.positive_time_period_microseconds,
                 cv.Range(min=cv.TimePeriod(microseconds=20000)),
             ),
+            cv.Optional(CONF_OFFSET_CALIBRATION): cv.int_range(min=-512000, max=511000),
+            cv.Optional(CONF_CROSSTALK_COMPENSATION): cv.float_range(min=0.0, max=10.0),
+            cv.Optional(CONF_ENABLE_TEMPERATURE_RECAL, default=False): cv.boolean,
             cv.Optional(CONF_TIMEOUT, default="10ms"): check_timeout,
             cv.Optional(CONF_ENABLE_PIN): pins.gpio_output_pin_schema,
         }
@@ -93,6 +99,11 @@ async def to_code(config):
     cg.add(var.set_enable_signal_check(config[CONF_ENABLE_SIGNAL_CHECK]))
     if CONF_TIMING_BUDGET in config:
         cg.add(var.set_timing_budget(config[CONF_TIMING_BUDGET]))
+    if CONF_OFFSET_CALIBRATION in config:
+        cg.add(var.set_offset_calibration(config[CONF_OFFSET_CALIBRATION]))
+    if CONF_CROSSTALK_COMPENSATION in config:
+        cg.add(var.set_crosstalk_compensation(config[CONF_CROSSTALK_COMPENSATION]))
+    cg.add(var.set_enable_temperature_recal(config[CONF_ENABLE_TEMPERATURE_RECAL]))
     cg.add(var.set_timeout_us(config[CONF_TIMEOUT]))
 
     if CONF_ENABLE_PIN in config:
