@@ -10,6 +10,7 @@ An enhanced VL53L0X Time-of-Flight distance sensor component for ESPHome with ES
 - ✅ **Offset Calibration** - Factory offset correction (-512mm to +511mm)
 - ✅ **Crosstalk Compensation** - Cover glass crosstalk correction
 - ✅ **Configurable Timing Budget** - Trade speed for accuracy (20ms to 200ms+)
+- ✅ **Automatic Recovery** - Configurable timeout with hard reset on sensor deadlock
 
 ## Installation
 
@@ -63,6 +64,9 @@ sensor:
     offset_calibration: 0        # micrometers, range: -512000 to +511000
     crosstalk_compensation: 0.0  # MCPS, range: 0.0 to 10.0
     
+    # Timeout recovery (optional)
+    reading_timeout: 5s          # Hard reset timeout, range: 1s to 60s
+    
     # Native ESPHome options
     signal_rate_limit: 0.25
     long_range: false
@@ -113,6 +117,34 @@ The component validates range status and logs errors:
 | 3 | Min range fail | Logged, still published |
 | 4 | Phase out of bounds | Published as NAN (out of range) |
 | 5 | Hardware fail | Published as NAN |
+
+## Timeout Recovery
+
+The sensor can enter a permanent deadlock state on I2C/hardware failures. The component includes automatic recovery with configurable timeout:
+
+```yaml
+reading_timeout: 5s  # Default value, range: 1s to 60s
+```
+
+**How it works:**
+- If the sensor gets stuck in a reading state for longer than `reading_timeout`, a full hardware reset is performed
+- The timeout triggers a complete sensor reinitialization via `setup()`
+- Default timeout is 5 seconds, adjustable between 1-60 seconds
+- No progressive recovery or counting - immediate hard reset when timeout occurs
+
+**When to adjust:**
+- **Increase timeout** (e.g., `10s`) if you have a slow I2C bus or long timing budgets
+- **Decrease timeout** (e.g., `3s`) for faster recovery in critical applications
+- Keep default `5s` for most use cases
+
+**Example:**
+```yaml
+sensor:
+  - platform: vl53l0x_lib
+    name: "Distance Sensor"
+    reading_timeout: 10s  # Longer timeout for stability
+    update_interval: 2s
+```
 
 ## Multiple Sensors
 
