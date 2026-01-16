@@ -292,16 +292,18 @@ void VL53L0XSensorMod::update() {
 }
 
 void VL53L0XSensorMod::loop() {
-  // Timeout recovery: if stuck in reading state for more than 5 seconds, reset
-  const uint32_t READ_TIMEOUT_MS = 5000;
+  // Hard reset timeout recovery: if stuck in reading state, perform full reinitialization
   if ((this->initiated_read_ || this->waiting_for_interrupt_) &&
-      (millis() - this->read_start_time_ > READ_TIMEOUT_MS)) {
-    ESP_LOGW(TAG, "'%s' - Reading timed out, resetting sensor state",
-             this->name_.c_str());
+      (millis() - this->read_start_time_ > this->reading_timeout_ms_)) {
+    ESP_LOGW(TAG, "'%s' - Reading timed out after %ums, performing hard reset",
+             this->name_.c_str(), this->reading_timeout_ms_);
+    
+    // Reset state flags
     this->initiated_read_ = false;
     this->waiting_for_interrupt_ = false;
-    // Clear any pending interrupts
-    reg(0x0B) = 0x01;
+    
+    // Hard reset: Full sensor reinitialization
+    this->setup();
     return;
   }
 
